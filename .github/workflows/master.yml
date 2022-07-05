@@ -1,10 +1,10 @@
 on: [push]
 
 jobs:
-  hello_world_job:
+  add-calver:
     runs-on: ubuntu-latest
 
-    name: A job to say hello
+    name: Add a calver tag
 
     steps:
       # To use this repository's private action,
