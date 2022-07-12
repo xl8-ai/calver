@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# NOTE: this file is made by https://github.com/line/headver/blob/main/examples/bash.md.
+# NOTE: this file refs to https://github.com/line/headver/blob/main/examples/bash.md.
 
 version=""
 yearweek=""
@@ -39,9 +39,9 @@ fi
 yearweek="${year:2:2}${weeknumber}"
 
 if [ -z ${override_version} ]; then
-    head=$(cat ./package.json | grep -m 1 version | sed 's/[^0-9.]//g')
+    head=$(cat ./package.json | grep -m 1 headVersion | sed 's/[^0-9.]//g')
 
-    printf "current the calver head version pasred from package.json: $head\n"
+    printf "current the calver headVersion pasred from package.json: $head\n"
 
     lastest=`git tag | grep "staging*" | sort -g | tail -1`
     latestHead=`echo $lastest | cut -d. -f1`
