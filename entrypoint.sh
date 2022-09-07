@@ -11,10 +11,10 @@ weeknumber=`date +%V` # ISO Standard week number
 for ARGUMENT in "$@"
 do
     KEY=$(echo $ARGUMENT | cut -f1 -d=)
-    VALUE=$(echo $ARGUMENT | cut -f2 -d=)  
+    VALUE=$(echo $ARGUMENT | cut -f2 -d=)
 
     case "$KEY" in
-            --override_version)     
+            --override_version)
               override_version=${VALUE} ;;
 
             *)
@@ -43,17 +43,16 @@ if [ -z ${override_version} ]; then
 
     printf "current the calver headVersion pasred from package.json: $head\n"
 
-    lastest=`git tag | grep "staging*" | sort -g | tail -1`
+    lastest=`git tag | sort -g | tail -1`
     latestHead=`echo $lastest | cut -d. -f1`
-    latestCutHead=${latestHead/staging-/}
     latestYearweek=`echo $lastest | cut -d. -f2`
     latestBuild=`echo $lastest | cut -d. -f3`
 
-    printf "lastHead: $latestCutHead $h\n"
+    printf "lastHead: $latestHead $h\n"
     printf "lastYearweek: $latestYearweek\n"
     printf "lastBuild: $latestBuild\n"
 
-    printf "latest $latestCutHead.$latestYearweek.$latestBuild\n"
+    printf "latest $latestHead.$latestYearweek.$latestBuild\n"
 
     if [ -z ${lastest} ]; then
         build="0"
@@ -67,7 +66,7 @@ if [ -z ${override_version} ]; then
         fi
 
         if [ "$yearweek" != "$latestYearweek" ]; then
-            build="0"      
+            build="0"
             echo "- Warning: yearweek is changed"
         fi
     fi
