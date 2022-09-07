@@ -80,5 +80,5 @@ fi
 
 printf "version: $version\n"
 
-git tag "staging-$version"
+git tag "$version"
 git push origin --tags
