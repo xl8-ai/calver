@@ -43,7 +43,7 @@ if [ -z ${override_version} ]; then
 
     printf "current the calver headVersion pasred from package.json: $head\n"
 
-    lastest=`git tag | sort -g | tail -1`
+    lastest=`git describe --tags $(git rev-list --tags --max-count=1)`
     latestHead=`echo $lastest | cut -d. -f1`
     latestYearweek=`echo $lastest | cut -d. -f2`
     latestBuild=`echo $lastest | cut -d. -f3`
