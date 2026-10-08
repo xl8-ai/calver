@@ -1,10 +1,26 @@
 on: [push]
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    name: Test entrypoint.sh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # Runs before the tagging job below, so a broken entrypoint cannot tag. The runner has
+      # GNU date and git already, and the suite needs nothing else.
+      - name: Run tests
+        run: ./test/entrypoint_test.sh
+
   add-calver:
     runs-on: ubuntu-latest
 
     name: Add a calver tag
+
+    needs: [test]
 
     steps:
       # To use this repository's private action,
