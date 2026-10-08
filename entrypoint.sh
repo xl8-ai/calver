@@ -51,12 +51,32 @@ else
 fi
 
 echo "fetching latest tags from remote...";
-# A tagless remote makes this refspec match nothing, which git reports as exit 1 WITH NO
-# MESSAGE. Under `set -e` that killed the script here with no diagnostic at all -- the exact
-# silent failure this script was changed to stop doing -- and made the "there is no tag"
-# branch below unreachable, so a repo adopting this action could never cut its first tag.
-git fetch --depth=1 origin '+refs/tags/*:refs/tags/*' \
-    || echo "- Warning: fetched no tags (remote may have none yet)."
+# Two different things both make the fetch below exit 1: a remote with no tags yet (the
+# refspec matches nothing -- git reports this as exit 1 with NO message), and a real failure
+# such as a bad token or an unreachable host. They must NOT be treated the same.
+#
+# Blanket-tolerating the fetch recreates the bug this script exists to fix: with the fetch
+# failed there are zero local tags, so `lastest` is empty and the version computes to
+# $head.$yearweek.0. The collision guard below cannot catch that, because `git rev-parse`
+# consults only LOCAL refs and there are none. The push usually then gets rejected -- loud,
+# fine -- but if the remote's $head.$yearweek.0 already points at this commit, the push is a
+# no-op that prints "Everything up-to-date" and exits 0, and the script reports `tagged`
+# having created nothing. That is precisely the original failure.
+#
+# `git ls-remote` separates the cases cleanly: exit 0 against a reachable tagless remote,
+# 128 against an unreachable one.
+remote_tags=$(git ls-remote --tags origin) || {
+    echo "ERROR: cannot reach origin to list tags. Refusing to compute a version from an"
+    echo "       incomplete tag list -- that is how a taken version gets recomputed."
+    exit 1
+}
+
+if [ -z "${remote_tags}" ]; then
+    echo "- Warning: remote has no tags yet; this run will create the first."
+else
+    # Tags exist, so a failure here IS a failure: let `set -e` stop the run.
+    git fetch --depth=1 origin '+refs/tags/*:refs/tags/*'
+fi
 
 # this prevents from having 1801 at the last week of the year 2019. It should be 1901.
 # ${day} is today, from the same clock as ${year}/${weeknumber} above. This used to read
@@ -74,7 +94,15 @@ fi
 yearweek="${year:2:2}${weeknumber}"
 
 if [ -z "${override_version}" ]; then
-    head=$(grep -m 1 headVersion ./package.json | sed 's/[^0-9.]//g')
+    # `|| true` because under `pipefail` a package.json with no headVersion key makes grep
+    # exit 1 and takes the whole script with it, printing nothing at all. Checked explicitly
+    # below instead, so the reason is on screen.
+    head=$(grep -m 1 headVersion ./package.json 2>/dev/null | sed 's/[^0-9.]//g') || true
+
+    if [ -z "${head}" ]; then
+        echo "ERROR: no headVersion found in ./package.json -- cannot compute a version."
+        exit 1
+    fi
 
     printf "current the calver headVersion pasred from package.json: $head\n"
 

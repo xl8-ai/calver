@@ -124,7 +124,33 @@ bash "$ENTRYPOINT" --forced_date=2026-10-08 >/dev/null 2>&1
 check "pushes only the computed tag" "2.2641.0 2.2641.1" "$(remote_tags)"
 
 # ---------------------------------------------------------------------------------------
-# 6. Year-boundary corrections. Dead code until this change (they read an unassigned
+# 6. A failed fetch must NOT look like "no tags". With the fetch swallowed, there are zero
+#    local tags, the version computes to build 0, and the collision guard cannot help --
+#    `git rev-parse` reads only local refs. If the remote already has that tag on this
+#    commit, the push is a no-op that exits 0 and the script reports success having created
+#    nothing: the original bug, rebuilt.
+# ---------------------------------------------------------------------------------------
+cd "$(make_repo unreachable 2.2641.0)"
+git remote set-url origin "$WORKROOT/definitely-not-a-repo.git"
+out=$(bash "$ENTRYPOINT" --forced_date=2026-10-08 2>&1); rc=$?
+check "unreachable remote fails" "1" "$rc"
+case "$out" in *"ERROR: cannot reach origin"*) ok "unreachable remote explains itself";;
+               *) bad "unreachable remote explains itself" "got: $out";; esac
+case "$out" in *"tagged"*) bad "unreachable remote creates no tag" "reported success";;
+               *) ok "unreachable remote creates no tag";; esac
+
+# ---------------------------------------------------------------------------------------
+# 7. A package.json with no headVersion died under `pipefail` printing nothing at all.
+# ---------------------------------------------------------------------------------------
+cd "$(make_repo noheadversion 2.2641.0)"
+echo '{ "name": "no-head-version-here" }' > package.json
+out=$(bash "$ENTRYPOINT" --forced_date=2026-10-08 2>&1); rc=$?
+check "missing headVersion fails" "1" "$rc"
+case "$out" in *"ERROR: no headVersion"*) ok "missing headVersion explains itself";;
+               *) bad "missing headVersion explains itself" "got: $out";; esac
+
+# ---------------------------------------------------------------------------------------
+# 8. Year-boundary corrections. Dead code until this change (they read an unassigned
 #    ${forced_date}), now live and able to move the computed version by a whole year. A
 #    wrong flip produces a tag that sorts BELOW everything and re-wedges the pipeline.
 # ---------------------------------------------------------------------------------------
