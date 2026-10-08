@@ -9,9 +9,13 @@ set -euo pipefail
 
 version=""
 yearweek=""
-year=`date +%Y`
-weeknumber=`date +%V` # ISO Standard week number
-day=`date +%-d`
+override_version=""
+# Assigned only on the computed path; the collision message below reads it on both, and an
+# unbound read is fatal under `set -u`.
+lastest=""
+# Empty means "now". Set via --forced_date to pin the clock -- the only way to exercise the
+# two year-boundary corrections below, which otherwise fire about two weeks a year.
+forced_date=""
 
 # sanitize inputs
 for ARGUMENT in "$@"
@@ -23,19 +27,41 @@ do
             --override_version)
               override_version=${VALUE} ;;
 
+            --forced_date)
+              forced_date=${VALUE} ;;
+
             *)
               echo "ERROR: unknown parameter \"$KEY\""
               exit 1 ;;
     esac
 done
 
+# All three components come from ONE reading of the clock so they cannot disagree with each
+# other (year from one instant and week from the next, across a midnight, would be a silent
+# wrong tag). `date -d` is GNU-only and is used solely on the injected path; the default path
+# stays portable.
+if [ -n "${forced_date}" ]; then
+    year=$(date -d "${forced_date}" +%Y)
+    weeknumber=$(date -d "${forced_date}" +%V)  # ISO Standard week number
+    day=$(date -d "${forced_date}" +%-d)
+else
+    year=$(date +%Y)
+    weeknumber=$(date +%V)  # ISO Standard week number
+    day=$(date +%-d)
+fi
+
 echo "fetching latest tags from remote...";
-git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+# A tagless remote makes this refspec match nothing, which git reports as exit 1 WITH NO
+# MESSAGE. Under `set -e` that killed the script here with no diagnostic at all -- the exact
+# silent failure this script was changed to stop doing -- and made the "there is no tag"
+# branch below unreachable, so a repo adopting this action could never cut its first tag.
+git fetch --depth=1 origin '+refs/tags/*:refs/tags/*' \
+    || echo "- Warning: fetched no tags (remote may have none yet)."
 
 # this prevents from having 1801 at the last week of the year 2019. It should be 1901.
 # ${day} is today, from the same clock as ${year}/${weeknumber} above. This used to read
-# `date -u -d ${forced_date}`, but ${forced_date} was never assigned anywhere, so the
-# substitution errored and both year corrections silently never applied.
+# `date -u -d ${forced_date}` while ${forced_date} was assigned nowhere, so the substitution
+# errored and both year corrections silently never applied.
 if [ ${weeknumber} -eq 1 ] && [ ${day} -gt 20 ]; then
   year=$(expr ${year} + 1)
 fi
@@ -47,7 +73,7 @@ fi
 
 yearweek="${year:2:2}${weeknumber}"
 
-if [ -z "${override_version:-}" ]; then
+if [ -z "${override_version}" ]; then
     head=$(grep -m 1 headVersion ./package.json | sed 's/[^0-9.]//g')
 
     printf "current the calver headVersion pasred from package.json: $head\n"
@@ -99,7 +125,7 @@ printf "version: $version\n"
 # already taken and the run needs a human -- silently exiting 0 here is what hid the bug.
 if git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
     echo "ERROR: tag '$version' already exists. Refusing to report success without tagging."
-    echo "       Latest tag seen was '$lastest' (version-sorted)."
+    echo "       Latest tag seen was '${lastest:-n/a (override_version was used)}' (version-sorted)."
     exit 1
 fi
 
