@@ -2,10 +2,16 @@
 
 # NOTE: this file refs to https://github.com/line/headver/blob/main/examples/bash.md.
 
+# Fail loudly. Before this, `git tag` could fail with "tag already exists" and the step still
+# went green, because `git push` ran last and its exit status was the script's -- so a release
+# that was never tagged reported success. See the tag-collision guard near the bottom.
+set -euo pipefail
+
 version=""
 yearweek=""
 year=`date +%Y`
 weeknumber=`date +%V` # ISO Standard week number
+day=`date +%-d`
 
 # sanitize inputs
 for ARGUMENT in "$@"
@@ -27,38 +33,48 @@ echo "fetching latest tags from remote...";
 git fetch --depth=1 origin +refs/tags/*:refs/tags/*
 
 # this prevents from having 1801 at the last week of the year 2019. It should be 1901.
-if [ ${weeknumber} -eq 1 ] && [ `date -u -d ${forced_date} +%-d` -gt 20 ]; then
+# ${day} is today, from the same clock as ${year}/${weeknumber} above. This used to read
+# `date -u -d ${forced_date}`, but ${forced_date} was never assigned anywhere, so the
+# substitution errored and both year corrections silently never applied.
+if [ ${weeknumber} -eq 1 ] && [ ${day} -gt 20 ]; then
   year=$(expr ${year} + 1)
 fi
 
 # this prevents from having 1053 at the last week of the year 2010. It should be 0953.
-if [ ${weeknumber} -ge 52 ] && [ `date -u -d ${forced_date} +%-d` -le 7 ]; then
+if [ ${weeknumber} -ge 52 ] && [ ${day} -le 7 ]; then
     year=$(expr ${year} - 1)
 fi
 
 yearweek="${year:2:2}${weeknumber}"
 
-if [ -z ${override_version} ]; then
-    head=$(cat ./package.json | grep -m 1 headVersion | sed 's/[^0-9.]//g')
+if [ -z "${override_version:-}" ]; then
+    head=$(grep -m 1 headVersion ./package.json | sed 's/[^0-9.]//g')
 
     printf "current the calver headVersion pasred from package.json: $head\n"
 
-    lastest=`git tag --sort=committerdate | grep -E '^[0-9]' | tail -1`
+    # Sort by VERSION, not by committer date. `--sort=committerdate` reads a field that only
+    # exists on lightweight tags; an annotated tag (which is what a GitHub Release creates)
+    # has no committerdate, sorts to the FRONT, and `tail -1` then returns the wrong "latest".
+    # That is not hypothetical: mediacat.xl8.ai had exactly one annotated tag out of 895
+    # (2.2641.1), which pinned "latest" at 2.2641.0 and made every subsequent run recompute
+    # the same already-taken 2.2641.1 forever. `v:refname` is refname-only, so it is immune to
+    # tag object type, and it orders .10 after .9 (a plain lexical sort does not).
+    lastest=`git tag --sort=v:refname | grep -E '^[0-9]' | tail -1 || true`
     latestHead=`echo $lastest | cut -d. -f1`
     latestYearweek=`echo $lastest | cut -d. -f2`
     latestBuild=`echo $lastest | cut -d. -f3`
 
-    printf "lastHead: $latestHead $h\n"
+    printf "lastHead: $latestHead\n"
     printf "lastYearweek: $latestYearweek\n"
     printf "lastBuild: $latestBuild\n"
 
     printf "latest $latestHead.$latestYearweek.$latestBuild\n"
 
-    if [ -z ${lastest} ]; then
+    if [ -z "${lastest}" ]; then
         build="0"
         echo "- Warning: There is no tag. set to default.";
     else
-        if [ -z ${latestBuild} ]; then
+        if [ -z "${latestBuild}" ]; then
             build="0"
             echo "- Warning: no build value. set to 0 by default."
         else
@@ -79,5 +95,16 @@ fi
 
 printf "version: $version\n"
 
+# Refuse to report success without tagging. If this ever fires, the computed version is
+# already taken and the run needs a human -- silently exiting 0 here is what hid the bug.
+if git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
+    echo "ERROR: tag '$version' already exists. Refusing to report success without tagging."
+    echo "       Latest tag seen was '$lastest' (version-sorted)."
+    exit 1
+fi
+
 git tag "$version"
-git push origin --tags
+# Push THIS tag, not --tags: --tags pushes every local tag, which can resurrect ones that
+# were deliberately deleted on the remote.
+git push origin "refs/tags/$version"
+echo "tagged $version"
